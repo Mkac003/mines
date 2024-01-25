@@ -585,14 +585,14 @@ void frame(GameContext *ctx) {
       screen_x = x * TILE_SIZE + field_screen_x;
       screen_y = y * TILE_SIZE + field_screen_y;
       
-      if (IS_RVLD(t)) {
+      if (IS_WFLG(t)) {
+        draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
+        draw_texture(renderer, textures[IMG_TILE_WFLG], screen_x+3, screen_y+3);
+        }
+      else if (IS_RVLD(t)) {
         if (IS_MINE(t)) {
           draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
           draw_texture(renderer, textures[9], screen_x+3, screen_y+3);
-          }
-        else if (IS_WFLG(t)) {
-          draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
-          draw_texture(renderer, textures[IMG_TILE_WFLG], screen_x+3, screen_y+3);
           }
         else {
           draw_texture(renderer, textures[IMG_TILE_OPENED], screen_x, screen_y);
