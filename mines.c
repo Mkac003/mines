@@ -126,10 +126,7 @@ void update_button(Button *button, uint32_t mouse_just_clicked) {
   
   if (BUTTON_IS_CLICKED(button)) button->state &= ~BUTTON_CLICKED;
   if (BUTTON_IS_HOVERED(button)) {
-    if (mouse_just_clicked & SDL_BUTTON_LEFT) {
-      button->state |= BUTTON_CLICKED;
-      // printf("MOUSEBUTTONUP\n");
-      }
+    if (mouse_just_clicked & SDL_BUTTON_LEFT) button->state |= BUTTON_CLICKED;
     }
   
   }
@@ -341,7 +338,6 @@ bool run_chord(MineField *field, int hovered_tile_x, int hovered_tile_y) {
     if (IS_FLAG(t)) flags ++;
     }
   
-  // printf("run_chord: flags: %d tile_n: %d\n", flags, TILE_GET_NUMBER(field->tiles[hovered_tile_x][hovered_tile_y]));
   if (flags != TILE_GET_NUMBER(field->tiles[hovered_tile_x][hovered_tile_y])) return m;
   for (int i=0;i<16;i+=2) {
     int x = hovered_tile_x + offsets3x3[i];
@@ -383,8 +379,10 @@ void init(GameContext *ctx) {
   IMG_Init(IMG_INIT_PNG);
   srand(time(NULL));
   
+  SDL_SetHint(SDL_HINT_RENDER_BATCHING, "1"); // experimental
+  
   ctx->window = SDL_CreateWindow("MineSweeper", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 50, 50, SDL_WINDOW_HIDDEN);
-  ctx->renderer = SDL_CreateRenderer(ctx->window, -1, SDL_RENDERER_SOFTWARE); // SDL_RENDERER_ACCELERATED
+  ctx->renderer = SDL_CreateRenderer(ctx->window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   ctx->run = true;
   
   SDL_Texture *textures[] = {
@@ -419,9 +417,9 @@ void init(GameContext *ctx) {
   ctx->field_screen_x = PADDING+3;
   ctx->field_screen_y = TOPBAR_HEIGHT;
   
-  int field_width = 18;
-  int field_height = 18;
-  int field_mines = 18*18/8;
+  int field_width = 28;
+  int field_height = 28;
+  int field_mines = 28*28/8;
   
   ctx->field = generate_field(field_width, field_height, field_mines);
   ctx->chord = false;
@@ -499,12 +497,12 @@ void frame(GameContext *ctx) {
         }
     }
   
-  // if (!ctx->run) return;
+  if (!ctx->run) return;
   
   update_button(big_button, mouse_just_clicked);
   if (BUTTON_IS_CLICKED(big_button)) {
     free_field(ctx->field);
-    ctx->field = generate_field(18, 18, 18*18/8);
+    ctx->field = generate_field(28, 28, 28*28/8);
     ctx->game_state = GAME_PLAYING;
     big_button->image = IMG_BIG_FLAG;
     field = ctx->field;
@@ -592,11 +590,11 @@ int main() {
   init(ctx);
   
   #ifdef __EMSCRIPTEN__
-  emscripten_set_main_loop_arg((em_arg_callback_func) frame, ctx, 60, 1);
+  emscripten_set_main_loop_arg((em_arg_callback_func) frame, ctx, 0, 1);
   #else
   while (ctx->run) {
     frame(ctx);
-    SDL_Delay(1/60);
+    // SDL_Delay(1/60);
     }
   
   destroy_ctx(ctx);
