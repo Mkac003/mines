@@ -98,9 +98,13 @@ void draw_inset_rect(SDL_Renderer *renderer, SDL_Texture *texture, int x, int y,
 
 #define GAME_PLAYING 0
 #define GAME_OVER    1
+#define GAME_WON     2
 
 #define WIDGET_BIG_BUTTON 0
 #define WIDGET_MINE_DISPLAY 1
+
+#define STARTING_FIELD_WIDTH 16
+#define STARTING_FIELD_HEIGHT 16
 
 // Button
 typedef struct {
@@ -218,6 +222,7 @@ typedef struct {
   int height;
   int placed_mines;
   int placed_flags;
+  int tiles_unopened;
   Tile **tiles;
   } MineField;
 
@@ -251,6 +256,7 @@ uint8_t reveal(MineField *field, int x, int y) {
   field->tiles[x][y] |= TILE_RVLD;
   field->tiles[x][y] &= ~TILE_FLAG;
   
+  field->tiles_unopened --;
   return field->tiles[x][y];
   }
 
@@ -264,6 +270,7 @@ MineField *generate_field(int width, int height, int n_mines) {
   field->width = width;
   field->height = height;
   field->placed_flags = 0;
+  field->tiles_unopened = width * height;
   
   Tile **tiles = malloc(sizeof(Tile *) * width);
   field->tiles = tiles;
@@ -334,7 +341,7 @@ bool dig(MineField *field, int x, int y) {
   return m;
   }
 
-void show_all(MineField *field) {
+void show_all(MineField *field, bool flagmines) {
   for (int x=0;x<field->width;x++) {
     for (int y=0;y<field->height;y++) {
       
@@ -344,10 +351,12 @@ void show_all(MineField *field) {
           field->tiles[x][y] |= TILE_WFLG;
           }
         }
+      else if (IS_MINE(t) && flagmines) {
+        field->tiles[x][y] |= TILE_FLAG;
+        }
       else {
         field->tiles[x][y] |= TILE_RVLD;
         }
-      
       }
     }
   }
@@ -405,7 +414,7 @@ void flip_flag(MineField *field, int x, int y) {
 
 void game_over(GameContext *ctx) {
   ctx->game_state = GAME_OVER;
-  show_all(ctx->field);
+  show_all(ctx->field, false);
   ((Button *) ctx->widgets[WIDGET_BIG_BUTTON])->image = IMG_BIG_RETRY;
   }
 
@@ -463,11 +472,7 @@ void init(GameContext *ctx) {
   ctx->field_screen_x = PADDING+3;
   ctx->field_screen_y = TOPBAR_HEIGHT;
   
-  int field_width = 28;
-  int field_height = 28;
-  int field_mines = 28*28/8;
-  
-  ctx->field = generate_field(field_width, field_height, field_mines);
+  ctx->field = generate_field(STARTING_FIELD_WIDTH, STARTING_FIELD_HEIGHT, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/8);
   ctx->chord = false;
   ctx->game_state = GAME_PLAYING;
   
@@ -540,12 +545,22 @@ void frame(GameContext *ctx) {
         }
       }
     if (event.type == SDL_MOUSEBUTTONUP) {
-        mouse_just_clicked |= event.button.button;
-        if (event.button.button == SDL_BUTTON_MIDDLE) {
-          ctx->chord = false;
+      mouse_just_clicked |= event.button.button;
+      if (event.button.button == SDL_BUTTON_MIDDLE) {
+        ctx->chord = false;
+        if (run_chord(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
+        }
+      }
+    if (event.type == SDL_KEYDOWN) {
+      if (IN_FIELD(hovered_tile_x, hovered_tile_y, field)) {
+        const Tile t = field->tiles[hovered_tile_x][hovered_tile_y];
+        if (event.key.keysym.sym == SDLK_f) if (dig(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
+        if (event.key.keysym.sym == SDLK_d && !IS_RVLD(t)) flip_flag(field, hovered_tile_x, hovered_tile_y);
+        if (event.key.keysym.sym == SDLK_g) {
           if (run_chord(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
           }
         }
+      }
     }
   
   if (!ctx->run) return;
@@ -553,7 +568,7 @@ void frame(GameContext *ctx) {
   update_button(big_button, mouse_just_clicked);
   if (BUTTON_IS_CLICKED(big_button)) {
     free_field(ctx->field);
-    ctx->field = generate_field(28, 28, 28*28/8);
+    ctx->field = generate_field(STARTING_FIELD_WIDTH, STARTING_FIELD_HEIGHT, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/8);
     ctx->game_state = GAME_PLAYING;
     big_button->image = IMG_BIG_FLAG;
     field = ctx->field;
@@ -562,6 +577,11 @@ void frame(GameContext *ctx) {
   mine_display->value = field->placed_mines - field->placed_flags;
   if (mine_display->value < 0) mine_display->value = 0;
   
+  if (field->tiles_unopened == field->placed_mines) {
+    ctx->game_state = GAME_WON;
+    big_button->image = IMG_BIG_WON;
+    show_all(field, true);
+    }
   // Draw
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderClear(renderer);
@@ -585,14 +605,14 @@ void frame(GameContext *ctx) {
       screen_x = x * TILE_SIZE + field_screen_x;
       screen_y = y * TILE_SIZE + field_screen_y;
       
-      if (IS_RVLD(t)) {
+      if (IS_WFLG(t)) {
+        draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
+        draw_texture(renderer, textures[IMG_TILE_WFLG], screen_x+3, screen_y+3);
+        }
+      else if (IS_RVLD(t)) {
         if (IS_MINE(t)) {
           draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
           draw_texture(renderer, textures[9], screen_x+3, screen_y+3);
-          }
-        else if (IS_WFLG(t)) {
-          draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
-          draw_texture(renderer, textures[IMG_TILE_WFLG], screen_x+3, screen_y+3);
           }
         else {
           draw_texture(renderer, textures[IMG_TILE_OPENED], screen_x, screen_y);
