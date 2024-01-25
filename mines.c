@@ -4,8 +4,6 @@
   Features:
     - usual minesweeper things (open tile, set flag, ...)
     - chording (with the middle mouse button) see https://en.wikipedia.org/wiki/Chording section 'Minesweeper tactic'
-  
-  todo: make this codebase compilable with emscripten
 */
 
 // source emsdk/emsdk_env.sh
@@ -18,6 +16,10 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_image.h>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 int count_set_bits(int n) {
   int c = 0;
@@ -132,6 +134,25 @@ void update_button(Button *button, uint32_t mouse_just_clicked) {
   
   }
 
+#define PADDING 8
+
+#define IMG_TILE_FLAG    10
+#define IMG_TILE_UNKNOWN 11
+#define IMG_TILE_INSET   12
+#define IMG_TILE_OPENED  13
+
+#define IMG_BIG_FLAG     14
+#define IMG_BIG_MINE     15
+#define IMG_BIG_RETRY    16
+#define IMG_BIG_WON      17
+#define IMG_TILE_WFLG    18
+
+#define GAME_PLAYING 0
+#define GAME_OVER    1
+
+#define WIDGET_BIG_BUTTON 0
+#define WIDGET_MINE_DISPL 1
+
 // Tile
 #define Tile uint8_t
 
@@ -172,6 +193,25 @@ typedef struct {
   Tile **tiles;
   } MineField;
 
+typedef struct {
+  SDL_Window *window;
+  SDL_Renderer *renderer;
+  
+  SDL_Texture **textures;
+  int textures_len;
+  
+  int field_screen_x;
+  int field_screen_y;
+  
+  int game_state;
+  
+  void **widgets;
+  int widgets_len;
+  MineField *field;
+  bool chord;
+  bool run;
+  } GameContext;
+
 Tile get_tile(MineField *field, int x, int y) {
   if (x < 0 || x >= field->width)  return TILE_INVA;
   if (y < 0 || y >= field->height) return TILE_INVA;
@@ -210,7 +250,7 @@ MineField *generate_field(int width, int height, int n_mines) {
     x = rand() % width;
     y = rand() % height;
     
-    if (i > n_mines*2) break; // iteration limit limit
+    if (i > n_mines*2) break; // iteration limit
     i ++;
     if (IS_MINE(tiles[x][y])) continue;
     
@@ -327,228 +367,240 @@ void free_field(MineField *field) {
   free(field);
   }
 
-#define PADDING 8
+void flip_flag(MineField *field, int x, int y) {
+  if (!IN_FIELD(x, y, field)) return;
+  field->tiles[x][y] ^= TILE_FLAG;
+  }
 
-#define IMG_TILE_FLAG    10
-#define IMG_TILE_UNKNOWN 11
-#define IMG_TILE_INSET   12
-#define IMG_TILE_OPENED  13
+void game_over(GameContext *ctx) {
+  ctx->game_state = GAME_OVER;
+  show_all(ctx->field);
+  ((Button *) ctx->widgets[WIDGET_BIG_BUTTON])->image = IMG_BIG_RETRY;
+  }
 
-#define IMG_BIG_FLAG     14
-#define IMG_BIG_MINE     15
-#define IMG_BIG_RETRY    16
-#define IMG_TILE_WFLG    17
-
-#define GAME_PLAYING 0
-#define GAME_OVER    1
-
-int main() {
-  // Init
+void init(GameContext *ctx) {
   SDL_Init(SDL_INIT_TIMER | SDL_INIT_VIDEO | SDL_INIT_EVENTS);
   IMG_Init(IMG_INIT_PNG);
   srand(time(NULL));
   
-  // Create a Window
-  SDL_Window *window = SDL_CreateWindow("MineSweeper", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 50, 50, SDL_WINDOW_HIDDEN);
-  SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+  ctx->window = SDL_CreateWindow("MineSweeper", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 50, 50, SDL_WINDOW_HIDDEN);
+  ctx->renderer = SDL_CreateRenderer(ctx->window, -1, SDL_RENDERER_SOFTWARE); // SDL_RENDERER_ACCELERATED
+  ctx->run = true;
   
-  // Load assets
   SDL_Texture *textures[] = {
-    IMG_LoadTexture(renderer, "res/tile0.png"),
-    IMG_LoadTexture(renderer, "res/tile1.png"),
-    IMG_LoadTexture(renderer, "res/tile2.png"),
-    IMG_LoadTexture(renderer, "res/tile3.png"),
-    IMG_LoadTexture(renderer, "res/tile4.png"),
-    IMG_LoadTexture(renderer, "res/tile5.png"),
-    IMG_LoadTexture(renderer, "res/tile6.png"),
-    IMG_LoadTexture(renderer, "res/tile7.png"),
-    IMG_LoadTexture(renderer, "res/tile8.png"),
-    IMG_LoadTexture(renderer, "res/tile_bomb.png"),
-    IMG_LoadTexture(renderer, "res/tile_flag.png"),
-    IMG_LoadTexture(renderer, "res/unknown.png"),
-    IMG_LoadTexture(renderer, "res/unknown_inset.png"),
-    IMG_LoadTexture(renderer, "res/opened.png"),
-    IMG_LoadTexture(renderer, "res/bigbutton_flag.png"),
-    IMG_LoadTexture(renderer, "res/bigbutton_mine.png"),
-    IMG_LoadTexture(renderer, "res/bigbutton_retry.png"),
-    IMG_LoadTexture(renderer, "res/tile_wrong_flag.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile0.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile1.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile2.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile3.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile4.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile5.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile6.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile7.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile8.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile_bomb.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile_flag.png"),
+    IMG_LoadTexture(ctx->renderer, "res/unknown.png"),
+    IMG_LoadTexture(ctx->renderer, "res/unknown_inset.png"),
+    IMG_LoadTexture(ctx->renderer, "res/opened.png"),
+    IMG_LoadTexture(ctx->renderer, "res/bigbutton_flag.png"),
+    IMG_LoadTexture(ctx->renderer, "res/bigbutton_mine.png"),
+    IMG_LoadTexture(ctx->renderer, "res/bigbutton_retry.png"),
+    IMG_LoadTexture(ctx->renderer, "res/bigbutton_won.png"),
+    IMG_LoadTexture(ctx->renderer, "res/tile_wrong_flag.png"),
     };
   
+  ctx->textures = malloc(sizeof(textures));
+  memcpy(ctx->textures, textures, sizeof(textures));
+  
   SDL_Surface *icon = IMG_Load("res/tile8.png");
-  SDL_SetWindowIcon(window, icon);
+  SDL_SetWindowIcon(ctx->window, icon);
   SDL_FreeSurface(icon);
   
-  int field_x = PADDING+3;
-  int field_y = TOPBAR_HEIGHT;
+  ctx->field_screen_x = PADDING+3;
+  ctx->field_screen_y = TOPBAR_HEIGHT;
   
-  // Setup game
   int field_width = 18;
   int field_height = 18;
   int field_mines = 18*18/8;
   
-  int game_state = GAME_PLAYING;
+  ctx->field = generate_field(field_width, field_height, field_mines);
+  ctx->chord = false;
+  ctx->game_state = GAME_PLAYING;
   
-  MineField *field = generate_field(field_width, field_height, field_mines); // 46, 46, 46*46/10
-  bool chord = false;
+  int win_width = ctx->field->width*TILE_SIZE+PADDING*2+6;
+  int win_height = ctx->field->height*TILE_SIZE+TOPBAR_HEIGHT+PADDING+3;
+  SDL_SetWindowSize(ctx->window, win_width, win_height);
+  SDL_SetWindowPosition(ctx->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
   
-  // UI
-  int win_width = field->width*TILE_SIZE+PADDING*2+6;
-  int win_height = field->height*TILE_SIZE+TOPBAR_HEIGHT+PADDING+3;
-  SDL_SetWindowSize(window, win_width, win_height);
-  SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+  void *widgets[] = {
+    NULL,
+    };
   
-  Button big_button = {win_width/2-19, TOPBAR_HEIGHT/2-19, 38, 38, IMG_BIG_FLAG, 0};
+  Button *big_button = malloc(sizeof(Button));
+  *big_button = (Button) {win_width/2-19, TOPBAR_HEIGHT/2-19, 38, 38, IMG_BIG_FLAG, 0};
+  widgets[WIDGET_BIG_BUTTON] = big_button;
   
-  // Run!
+  ctx->widgets = malloc(sizeof(widgets));
+  memcpy(ctx->widgets, widgets, sizeof(widgets));
+  
+  SDL_ShowWindow(ctx->window);
+  }
+
+void frame(GameContext *ctx) {
+  SDL_Window *window = ctx->window;
+  SDL_Renderer *renderer = ctx->renderer;
+  
+  SDL_Texture **textures = ctx->textures;
+  const int textures_len = ctx->textures_len;
+  
+  const int field_screen_x = ctx->field_screen_x;
+  const int field_screen_y = ctx->field_screen_y;
+  
+  // const int game_state = &ctx->game_state;
+  void **const widgets = ctx->widgets;
+  const int widgets_len = ctx->widgets_len;
+  
+  MineField *field = ctx->field;
+  Button *big_button = (Button *) ctx->widgets[WIDGET_BIG_BUTTON];
+  
   SDL_Event event;
   uint32_t mouse_just_clicked = 0;
   
-  int run = 1;
   int hovered_tile_x, hovered_tile_y;
   int mouse_x, mouse_y;
   
-  SDL_ShowWindow(window);
-  while (run) {
-    SDL_GetMouseState(&mouse_x, &mouse_y);
+  SDL_GetMouseState(&mouse_x, &mouse_y);
     
-    hovered_tile_x = (mouse_x-field_x) / TILE_SIZE;
-    hovered_tile_y = (mouse_y-field_y) / TILE_SIZE;
-    
-    mouse_just_clicked = 0;
-    while (SDL_PollEvent(&event)) {
-      if (event.type == SDL_QUIT) run = 0;
-      if (event.type == SDL_MOUSEBUTTONDOWN) {
-        if (game_state == GAME_PLAYING) {
-          
-          if ((mouse_x >= field_x && mouse_x < field_width*TILE_SIZE+field_x) && (mouse_y >= field_y && mouse_y < field_height*TILE_SIZE+field_y)) {
-            const Tile t = field->tiles[hovered_tile_x][hovered_tile_y];
-            
-            hovered_tile_x = (event.button.x-field_x) / TILE_SIZE;
-            hovered_tile_y = (event.button.y-field_y) / TILE_SIZE;
-            if (event.button.button == SDL_BUTTON_LEFT && !IS_RVLD(t)) {
-              if (dig(field, hovered_tile_x, hovered_tile_y)) {
-                game_state = GAME_OVER;
-                show_all(field);
-                big_button.image = IMG_BIG_RETRY;
-                }
-              }
-            else if (event.button.button == SDL_BUTTON_RIGHT) {
-              if (!IS_RVLD(t)) {
-                if (IS_FLAG(t)) {
-                  field->tiles[hovered_tile_x][hovered_tile_y] &= ~TILE_FLAG;
-                  }
-                else {
-                  field->tiles[hovered_tile_x][hovered_tile_y] |= TILE_FLAG;
-                  }
-                }
-              }
-            else if (event.button.button == SDL_BUTTON_MIDDLE) {
-              chord = true;
-              // printf("hovered: %d %d\n", hovered_tile_x, hovered_tile_y);
-              }
+  hovered_tile_x = (mouse_x-field_screen_x) / TILE_SIZE;
+  hovered_tile_y = (mouse_y-field_screen_y) / TILE_SIZE;
+  
+  while (SDL_PollEvent(&event)) {
+    if (event.type == SDL_QUIT) ctx->run = false;
+    if (event.type == SDL_MOUSEBUTTONDOWN) {
+      if (ctx->game_state == GAME_PLAYING) {
+        if (IN_FIELD(hovered_tile_x, hovered_tile_y, field)) {
+          const Tile t = field->tiles[hovered_tile_x][hovered_tile_y];
+          if (event.button.button == SDL_BUTTON_LEFT && !IS_RVLD(t)) {
+            if (dig(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
             }
+          if (event.button.button == SDL_BUTTON_RIGHT) {
+            if (!IS_RVLD(t)) flip_flag(field, hovered_tile_x, hovered_tile_y);
+            }
+          if (event.button.button == SDL_BUTTON_MIDDLE) ctx->chord = true;
           }
         }
-      if (event.type == SDL_MOUSEBUTTONUP) {
+      }
+    if (event.type == SDL_MOUSEBUTTONUP) {
         mouse_just_clicked |= event.button.button;
         if (event.button.button == SDL_BUTTON_MIDDLE) {
-          chord = false;
-          if (run_chord(field, hovered_tile_x, hovered_tile_y)) {
-            printf("run_chord: digged up a mine\n");
-            game_state = GAME_OVER;
-            show_all(field);
-            big_button.image = IMG_BIG_RETRY;
-            }
+          ctx->chord = false;
+          if (run_chord(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
           }
         }
-      }
-    
-    if (!run) break;
-    
-    update_button(&big_button, mouse_just_clicked);
-    
-    if (big_button.state & BUTTON_CLICKED) {
-      free_field(field);
-      field = generate_field(field_width, field_height, field_mines);
-      game_state = GAME_PLAYING;
-      big_button.image = IMG_BIG_FLAG;
-      }
-    
-    
-    // Draw
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-    SDL_RenderClear(renderer);
-    
-    // Top Bar
-    draw_rigid_rect(renderer, textures[11], 0, 0, field->width*TILE_SIZE+PADDING*2+6, field->height*TILE_SIZE+TOPBAR_HEIGHT+3+PADDING);
-    draw_inset_rect(renderer, textures[12], PADDING, PADDING, field->width*TILE_SIZE+6, TOPBAR_HEIGHT-PADDING*2);
-    draw_button(renderer, &big_button, textures);
-    
-    draw_inset_rect(renderer, textures[12], field_x-3, field_y-3, field->width*TILE_SIZE+6, field->height*TILE_SIZE+6);
-    
-    // Field
-    Tile t;
-    int screen_x, screen_y;
-    for (int x=0;x<field->width;x++) {
-      for (int y=0;y<field->height;y++) {
-        t = field->tiles[x][y];
-        uint8_t n = TILE_GET_NUMBER(t);
-        
-        screen_x = x * TILE_SIZE + field_x;
-        screen_y = y * TILE_SIZE + field_y;
-        if (IS_RVLD(t)) {
-          if (IS_MINE(t)) {
-            draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
-            draw_texture(renderer, textures[9], screen_x+3, screen_y+3);
-            }
-          else if (IS_WFLG(t)) {
-            draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
-            draw_texture(renderer, textures[IMG_TILE_WFLG], screen_x+3, screen_y+3);
-            }
-          else {
-            draw_texture(renderer, textures[IMG_TILE_OPENED], screen_x, screen_y);
-            draw_texture(renderer, textures[n], screen_x+3, screen_y+3);
-            }
+    }
+  
+  // if (!ctx->run) return;
+  
+  update_button(big_button, mouse_just_clicked);
+  if (BUTTON_IS_CLICKED(big_button)) {
+    free_field(ctx->field);
+    ctx->field = generate_field(18, 18, 18*18/8);
+    ctx->game_state = GAME_PLAYING;
+    big_button->image = IMG_BIG_FLAG;
+    field = ctx->field;
+    }
+  
+  // Draw
+  SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+  SDL_RenderClear(renderer);
+  
+  // Top Bar
+  draw_rigid_rect(renderer, textures[11], 0, 0, field->width*TILE_SIZE+PADDING*2+6, field->height*TILE_SIZE+TOPBAR_HEIGHT+3+PADDING);
+  draw_inset_rect(renderer, textures[12], PADDING, PADDING, field->width*TILE_SIZE+6, TOPBAR_HEIGHT-PADDING*2);
+  draw_inset_rect(renderer, textures[12], field_screen_x-3, field_screen_y-3, field->width*TILE_SIZE+6, field->height*TILE_SIZE+6);
+  
+  draw_button(renderer, big_button, textures);
+  
+  
+  // Field
+  Tile t;
+  int screen_x, screen_y;
+  for (int x=0;x<field->width;x++) {
+    for (int y=0;y<field->height;y++) {
+      t = field->tiles[x][y];
+      uint8_t n = TILE_GET_NUMBER(t);
+      
+      screen_x = x * TILE_SIZE + field_screen_x;
+      screen_y = y * TILE_SIZE + field_screen_y;
+      
+      if (IS_RVLD(t)) {
+        if (IS_MINE(t)) {
+          draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
+          draw_texture(renderer, textures[9], screen_x+3, screen_y+3);
+          }
+        else if (IS_WFLG(t)) {
+          draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
+          draw_texture(renderer, textures[IMG_TILE_WFLG], screen_x+3, screen_y+3);
           }
         else {
-          draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
-          if (IS_FLAG(t)) {
-            draw_texture(renderer, textures[IMG_TILE_FLAG], screen_x+3, screen_y+3);
-            }
+          draw_texture(renderer, textures[IMG_TILE_OPENED], screen_x, screen_y);
+          draw_texture(renderer, textures[n], screen_x+3, screen_y+3);
+          }
+        }
+      else {
+        draw_texture(renderer, textures[IMG_TILE_UNKNOWN], screen_x, screen_y);
+        if (IS_FLAG(t)) {
+          draw_texture(renderer, textures[IMG_TILE_FLAG], screen_x+3, screen_y+3);
           }
         }
       }
-    
-    if (chord) {
-      Tile t;
-      for (int i=0;i<18;i+=2) {
-        int x = hovered_tile_x + offsets3x3[i];
-        int y = hovered_tile_y + offsets3x3[i+1];
-        
-        if (!IN_FIELD(x, y, field)) continue;
-        
-        t = field->tiles[x][y];
-        if (IS_RVLD(t)) continue;
-        if (IS_FLAG(t)) continue;
-        
-        screen_x = x * TILE_SIZE + field_x;
-        screen_y = y * TILE_SIZE + field_y;
-        
-        draw_texture(renderer, textures[IMG_TILE_OPENED], screen_x, screen_y);
-        }
+    }
+  
+  if (ctx->chord) {
+    Tile t;
+    for (int i=0;i<18;i+=2) {
+      int x = hovered_tile_x + offsets3x3[i];
+      int y = hovered_tile_y + offsets3x3[i+1];
+      
+      if (!IN_FIELD(x, y, field)) continue;
+      
+      t = field->tiles[x][y];
+      if (IS_RVLD(t)) continue;
+      if (IS_FLAG(t)) continue;
+      
+      screen_x = x * TILE_SIZE + field_screen_x;
+      screen_y = y * TILE_SIZE + field_screen_y;
+      
+      draw_texture(renderer, textures[IMG_TILE_OPENED], screen_x, screen_y);
       }
-    
-    SDL_RenderPresent(renderer);
+    }
+  
+  SDL_RenderPresent(renderer);
+  }
+
+void destroy_ctx(GameContext *ctx) {
+  for (int i=0;i<ctx->textures_len;i++) SDL_DestroyTexture(ctx->textures[i]);
+  free_field(ctx->field);
+  
+  SDL_DestroyRenderer(ctx->renderer);
+  SDL_DestroyWindow(ctx->window);
+  SDL_Quit();
+  }
+
+int main() {
+  GameContext *ctx = malloc(sizeof(GameContext));
+  init(ctx);
+  
+  #ifdef __EMSCRIPTEN__
+  emscripten_set_main_loop_arg((em_arg_callback_func) frame, ctx, 60, 1);
+  #else
+  while (ctx->run) {
+    frame(ctx);
     SDL_Delay(1/60);
     }
   
-  // Quit
-  for (int i=0;i<sizeof(textures)/sizeof(SDL_Texture *);i++) SDL_DestroyTexture(textures[i]);
-  free_field(field);
-  
-  SDL_DestroyRenderer(renderer);
-  SDL_DestroyWindow(window);
-  SDL_Quit();
+  destroy_ctx(ctx);
+  #endif
   
   return 0;
   }
