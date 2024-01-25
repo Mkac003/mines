@@ -80,6 +80,28 @@ void draw_inset_rect(SDL_Renderer *renderer, SDL_Texture *texture, int x, int y,
   SDL_RenderCopy(renderer, texture, &(SDL_Rect) {0, 19, 3, 3}, &(SDL_Rect) {x, y+h-3, 3, 3});
   }
 
+#define PADDING 8
+
+#define IMG_TILE_FLAG    10
+#define IMG_TILE_UNKNOWN 11
+#define IMG_TILE_INSET   12
+#define IMG_TILE_OPENED  13
+
+#define IMG_BIG_FLAG     14
+#define IMG_BIG_MINE     15
+#define IMG_BIG_RETRY    16
+#define IMG_BIG_WON      17
+#define IMG_TILE_WFLG    18
+
+#define IMG_DIGITS_START 19
+#define IMG_DIGIT_EMPTY  29
+
+#define GAME_PLAYING 0
+#define GAME_OVER    1
+
+#define WIDGET_BIG_BUTTON 0
+#define WIDGET_MINE_DISPLAY 1
+
 // Button
 typedef struct {
   int x;
@@ -131,24 +153,31 @@ void update_button(Button *button, uint32_t mouse_just_clicked) {
   
   }
 
-#define PADDING 8
+// Number Display
+typedef struct {
+  int x;
+  int y;
+  int digits;
+  int value;
+  } NumberDisplay;
 
-#define IMG_TILE_FLAG    10
-#define IMG_TILE_UNKNOWN 11
-#define IMG_TILE_INSET   12
-#define IMG_TILE_OPENED  13
-
-#define IMG_BIG_FLAG     14
-#define IMG_BIG_MINE     15
-#define IMG_BIG_RETRY    16
-#define IMG_BIG_WON      17
-#define IMG_TILE_WFLG    18
-
-#define GAME_PLAYING 0
-#define GAME_OVER    1
-
-#define WIDGET_BIG_BUTTON 0
-#define WIDGET_MINE_DISPL 1
+void draw_number_display(SDL_Renderer *renderer, NumberDisplay *display, SDL_Texture **textures) {
+  int w = 23*display->digits+4;
+  int h = 44;
+  draw_inset_rect(renderer, textures[12], display->x, display->y, w, h);
+  
+  SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+  SDL_RenderFillRect(renderer, &(SDL_Rect) {display->x+3, display->y+3, w-6, h-6});
+  
+  int n = display->value;
+  for(int i=0;i<display->digits;i++) {
+    int a = display->digits - i-1;
+    int digit_x = display->x + ((a*22)+5);
+    draw_texture(renderer, textures[IMG_DIGIT_EMPTY], digit_x, display->y+5);
+    draw_texture(renderer, textures[IMG_DIGITS_START+n%10], digit_x, display->y+5);
+    n /= 10;
+    }
+  }
 
 // Tile
 #define Tile uint8_t
@@ -180,13 +209,15 @@ void update_button(Button *button, uint32_t mouse_just_clicked) {
 #define IN_FIELD(x, y, field) !(x < 0 || x >= field->width || y < 0 || y >= field->height)
 
 #define TILE_SIZE 22
-#define TOPBAR_HEIGHT 70
+#define TOPBAR_HEIGHT 72
 
 const int offsets3x3[] = {-1, 0, -1, -1, 0, -1, 1, -1, 1, 0, 1, 1, 0, 1, -1, 1, 0, 0};
 
 typedef struct {
   int width;
   int height;
+  int placed_mines;
+  int placed_flags;
   Tile **tiles;
   } MineField;
 
@@ -232,6 +263,7 @@ MineField *generate_field(int width, int height, int n_mines) {
   MineField *field = malloc(sizeof(MineField));
   field->width = width;
   field->height = height;
+  field->placed_flags = 0;
   
   Tile **tiles = malloc(sizeof(Tile *) * width);
   field->tiles = tiles;
@@ -254,6 +286,7 @@ MineField *generate_field(int width, int height, int n_mines) {
     tiles[x][y] |= TILE_MINE;
     n ++;
     }
+  field->placed_mines = n;
   
   for (x=0;x<width;x++) {
     for (y=0;y<height;y++) {
@@ -366,6 +399,8 @@ void free_field(MineField *field) {
 void flip_flag(MineField *field, int x, int y) {
   if (!IN_FIELD(x, y, field)) return;
   field->tiles[x][y] ^= TILE_FLAG;
+  if (IS_FLAG(field->tiles[x][y])) field->placed_flags ++;
+  else field->placed_flags --;
   }
 
 void game_over(GameContext *ctx) {
@@ -405,6 +440,17 @@ void init(GameContext *ctx) {
     IMG_LoadTexture(ctx->renderer, "res/bigbutton_retry.png"),
     IMG_LoadTexture(ctx->renderer, "res/bigbutton_won.png"),
     IMG_LoadTexture(ctx->renderer, "res/tile_wrong_flag.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg0.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg1.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg2.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg3.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg4.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg5.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg6.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg7.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg8.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7seg9.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7segbg.png"),
     };
   
   ctx->textures = malloc(sizeof(textures));
@@ -431,12 +477,16 @@ void init(GameContext *ctx) {
   SDL_SetWindowPosition(ctx->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
   
   void *widgets[] = {
-    NULL,
+    NULL, NULL,
     };
   
   Button *big_button = malloc(sizeof(Button));
   *big_button = (Button) {win_width/2-19, TOPBAR_HEIGHT/2-19, 38, 38, IMG_BIG_FLAG, 0};
   widgets[WIDGET_BIG_BUTTON] = big_button;
+  
+  NumberDisplay *mine_display = malloc(sizeof(NumberDisplay));
+  *mine_display = (NumberDisplay) {PADDING+6, PADDING+6, 4, 123};
+  widgets[WIDGET_MINE_DISPLAY] = mine_display;
   
   ctx->widgets = malloc(sizeof(widgets));
   memcpy(ctx->widgets, widgets, sizeof(widgets));
@@ -460,6 +510,7 @@ void frame(GameContext *ctx) {
   
   MineField *field = ctx->field;
   Button *big_button = (Button *) ctx->widgets[WIDGET_BIG_BUTTON];
+  NumberDisplay *mine_display = (NumberDisplay *) widgets[WIDGET_MINE_DISPLAY];
   
   SDL_Event event;
   uint32_t mouse_just_clicked = 0;
@@ -508,6 +559,9 @@ void frame(GameContext *ctx) {
     field = ctx->field;
     }
   
+  mine_display->value = field->placed_mines - field->placed_flags;
+  if (mine_display->value < 0) mine_display->value = 0;
+  
   // Draw
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderClear(renderer);
@@ -518,7 +572,7 @@ void frame(GameContext *ctx) {
   draw_inset_rect(renderer, textures[12], field_screen_x-3, field_screen_y-3, field->width*TILE_SIZE+6, field->height*TILE_SIZE+6);
   
   draw_button(renderer, big_button, textures);
-  
+  draw_number_display(renderer, mine_display, textures);
   
   // Field
   Tile t;
