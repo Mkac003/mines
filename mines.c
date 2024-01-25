@@ -577,7 +577,7 @@ void frame(GameContext *ctx) {
   mine_display->value = field->placed_mines - field->placed_flags;
   if (mine_display->value < 0) mine_display->value = 0;
   
-  if (field->tiles_unopened == field->placed_mines) {
+  if (field->tiles_unopened == field->placed_mines && ctx->game_state == GAME_PLAYING) {
     ctx->game_state = GAME_WON;
     big_button->image = IMG_BIG_WON;
     show_all(field, true);
