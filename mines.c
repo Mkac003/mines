@@ -341,7 +341,7 @@ bool dig(MineField *field, int x, int y) {
   return m;
   }
 
-void show_all(MineField *field) {
+void show_all(MineField *field, bool flagmines) {
   for (int x=0;x<field->width;x++) {
     for (int y=0;y<field->height;y++) {
       
@@ -351,10 +351,12 @@ void show_all(MineField *field) {
           field->tiles[x][y] |= TILE_WFLG;
           }
         }
+      else if (IS_MINE(t) && flagmines) {
+        field->tiles[x][y] |= TILE_FLAG;
+        }
       else {
         field->tiles[x][y] |= TILE_RVLD;
         }
-      
       }
     }
   }
@@ -412,7 +414,7 @@ void flip_flag(MineField *field, int x, int y) {
 
 void game_over(GameContext *ctx) {
   ctx->game_state = GAME_OVER;
-  show_all(ctx->field);
+  show_all(ctx->field, false);
   ((Button *) ctx->widgets[WIDGET_BIG_BUTTON])->image = IMG_BIG_RETRY;
   }
 
@@ -543,12 +545,22 @@ void frame(GameContext *ctx) {
         }
       }
     if (event.type == SDL_MOUSEBUTTONUP) {
-        mouse_just_clicked |= event.button.button;
-        if (event.button.button == SDL_BUTTON_MIDDLE) {
-          ctx->chord = false;
+      mouse_just_clicked |= event.button.button;
+      if (event.button.button == SDL_BUTTON_MIDDLE) {
+        ctx->chord = false;
+        if (run_chord(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
+        }
+      }
+    if (event.type == SDL_KEYDOWN) {
+      if (IN_FIELD(hovered_tile_x, hovered_tile_y, field)) {
+        const Tile t = field->tiles[hovered_tile_x][hovered_tile_y];
+        if (event.key.keysym.sym == SDLK_f) if (dig(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
+        if (event.key.keysym.sym == SDLK_d && !IS_RVLD(t)) flip_flag(field, hovered_tile_x, hovered_tile_y);
+        if (event.key.keysym.sym == SDLK_g) {
           if (run_chord(field, hovered_tile_x, hovered_tile_y)) game_over(ctx);
           }
         }
+      }
     }
   
   if (!ctx->run) return;
@@ -568,7 +580,7 @@ void frame(GameContext *ctx) {
   if (field->tiles_unopened == field->placed_mines) {
     ctx->game_state = GAME_WON;
     big_button->image = IMG_BIG_WON;
-    show_all(field);
+    show_all(field, true);
     }
   // Draw
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
