@@ -30,6 +30,12 @@ int count_set_bits(int n) {
   return c;
   }
 
+int count_digits(int n) {
+  int c = 0;
+  while (n /= 10) c++;
+  return c;
+  }
+
 void draw_texture(SDL_Renderer *renderer, SDL_Texture *texture, int x, int y) {
   int w, h;
   SDL_QueryTexture(texture, NULL, NULL, &w, &h);
@@ -95,6 +101,7 @@ void draw_inset_rect(SDL_Renderer *renderer, SDL_Texture *texture, int x, int y,
 
 #define IMG_DIGITS_START 19
 #define IMG_DIGIT_EMPTY  29
+#define IMG_DIGIT_MINUS  30
 
 #define GAME_PLAYING 0
 #define GAME_OVER    1
@@ -104,8 +111,8 @@ void draw_inset_rect(SDL_Renderer *renderer, SDL_Texture *texture, int x, int y,
 #define WIDGET_BIG_BUTTON 0
 #define WIDGET_MINE_DISPLAY 1
 
-#define STARTING_FIELD_WIDTH 24
-#define STARTING_FIELD_HEIGHT 24
+#define STARTING_FIELD_WIDTH 8
+#define STARTING_FIELD_HEIGHT 8
 
 // Button
 typedef struct {
@@ -174,12 +181,22 @@ void draw_number_display(SDL_Renderer *renderer, NumberDisplay *display, SDL_Tex
   SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
   SDL_RenderFillRect(renderer, &(SDL_Rect) {display->x+3, display->y+3, w-6, h-6});
   
-  int n = display->value;
+  int n = abs(display->value);
+  bool minus_drawn = false;
   for(int i=0;i<display->digits;i++) {
     int a = display->digits - i-1;
     int digit_x = display->x + ((a*22)+5);
+    
     draw_texture(renderer, textures[IMG_DIGIT_EMPTY], digit_x, display->y+5);
-    draw_texture(renderer, textures[IMG_DIGITS_START+n%10], digit_x, display->y+5);
+    if (n > 0 || i == 0) {
+      draw_texture(renderer, textures[IMG_DIGITS_START+n%10], digit_x, display->y+5);
+      }
+    else {
+      if (display->value < 0 && !minus_drawn) {
+        minus_drawn = true;
+        draw_texture(renderer, textures[IMG_DIGIT_MINUS], digit_x, display->y+5);
+        }
+      }
     n /= 10;
     }
   }
@@ -460,6 +477,8 @@ void game_over(GameContext *ctx) {
 
 void start_game(GameContext *ctx, int hovered_tile_x, int hovered_tile_y) {
   generate_field(ctx->field, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/6, hovered_tile_x, hovered_tile_y);
+  int digits = count_digits(ctx->field->width*ctx->field->height) + 1;
+  ((NumberDisplay *) ctx->widgets[WIDGET_MINE_DISPLAY])->digits = (digits >= 3) ? digits : 3;
   ctx->game_state = GAME_PLAYING;
   dig(ctx->field, hovered_tile_x, hovered_tile_y);
   }
@@ -506,6 +525,7 @@ void init(GameContext *ctx) {
     IMG_LoadTexture(ctx->renderer, "res/7seg8.png"),
     IMG_LoadTexture(ctx->renderer, "res/7seg9.png"),
     IMG_LoadTexture(ctx->renderer, "res/7segbg.png"),
+    IMG_LoadTexture(ctx->renderer, "res/7segminus.png"),
     };
   
   ctx->textures = malloc(sizeof(textures));
@@ -540,7 +560,7 @@ void init(GameContext *ctx) {
   widgets[WIDGET_BIG_BUTTON] = big_button;
   
   NumberDisplay *mine_display = malloc(sizeof(NumberDisplay));
-  *mine_display = (NumberDisplay) {PADDING+6, PADDING+6, 4, 123};
+  *mine_display = (NumberDisplay) {PADDING+6, PADDING+6, 4, 0};
   widgets[WIDGET_MINE_DISPLAY] = mine_display;
   
   ctx->widgets = malloc(sizeof(widgets));
@@ -626,7 +646,7 @@ void frame(GameContext *ctx) {
     }
   
   mine_display->value = field->placed_mines - field->placed_flags;
-  if (mine_display->value < 0) mine_display->value = 0;
+  // if (mine_display->value < 0) mine_display->value = 0;
   
   if (field->tiles_unopened == field->placed_mines && ctx->game_state == GAME_PLAYING) {
     ctx->game_state = GAME_WON;
