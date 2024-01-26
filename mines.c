@@ -104,8 +104,8 @@ void draw_inset_rect(SDL_Renderer *renderer, SDL_Texture *texture, int x, int y,
 #define WIDGET_BIG_BUTTON 0
 #define WIDGET_MINE_DISPLAY 1
 
-#define STARTING_FIELD_WIDTH 46
-#define STARTING_FIELD_HEIGHT 46
+#define STARTING_FIELD_WIDTH 24
+#define STARTING_FIELD_HEIGHT 24
 
 // Button
 typedef struct {
@@ -289,12 +289,12 @@ void generate_field(MineField *field, int n_mines, int opening_x, int opening_y)
   int dx, dy, x, y;
   
   if (opening_x >= 0 && opening_y >= 0) {
-    // int opening_size = width * height / n_mines / 3;
     int opening_size = width * height / n_mines / 3;
     if (opening_size <= 2) opening_size = 3;
+    
     int opening_radius = 1;
-    printf("Generating an opening\n");
     tiles[opening_x][opening_y] = TILE8;
+    
     while (n < opening_size) {
       if (i > opening_size * 4) break; // iteration limit
       i ++;
@@ -354,8 +354,6 @@ void generate_field(MineField *field, int n_mines, int opening_x, int opening_y)
       tiles[x][y] = neighbors;
       }
     }
-  
-  // return field;
   }
 
 void clear_field(MineField *field) {
@@ -461,7 +459,7 @@ void game_over(GameContext *ctx) {
   }
 
 void start_game(GameContext *ctx, int hovered_tile_x, int hovered_tile_y) {
-  generate_field(ctx->field, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/6, hovered_tile_x, hovered_tile_y); // STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/8
+  generate_field(ctx->field, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/6, hovered_tile_x, hovered_tile_y);
   ctx->game_state = GAME_PLAYING;
   dig(ctx->field, hovered_tile_x, hovered_tile_y);
   }
@@ -561,7 +559,6 @@ void frame(GameContext *ctx) {
   const int field_screen_x = ctx->field_screen_x;
   const int field_screen_y = ctx->field_screen_y;
   
-  // const int game_state = &ctx->game_state;
   void **const widgets = ctx->widgets;
   const int widgets_len = ctx->widgets_len;
   
@@ -623,9 +620,6 @@ void frame(GameContext *ctx) {
   
   update_button(big_button, mouse_just_clicked);
   if (BUTTON_IS_CLICKED(big_button)) {
-    // free_field(ctx->field);
-    // ctx->field = generate_field(STARTING_FIELD_WIDTH, STARTING_FIELD_HEIGHT, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/8);
-    // ctx->field = generate_field(STARTING_FIELD_WIDTH, STARTING_FIELD_HEIGHT, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/8, hovered_tile_x, hovered_tile_y);
     ctx->game_state = GAME_WAITING;
     clear_field(ctx->field);
     big_button->image = IMG_BIG_FLAG;
