@@ -111,8 +111,8 @@ void draw_inset_rect(SDL_Renderer *renderer, SDL_Texture *texture, int x, int y,
 #define WIDGET_BIG_BUTTON 0
 #define WIDGET_MINE_DISPLAY 1
 
-#define STARTING_FIELD_WIDTH 8
-#define STARTING_FIELD_HEIGHT 8
+#define STARTING_FIELD_WIDTH 16
+#define STARTING_FIELD_HEIGHT 16
 
 // Button
 typedef struct {
