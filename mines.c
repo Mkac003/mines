@@ -384,10 +384,10 @@ void clear_field(MineField *field) {
 
 // recursive, returns true if a mine was revealed
 bool dig(MineField *field, int x, int y) {
+  if (!IN_FIELD(x, y, field)) return false;
+  
   Tile t = field->tiles[x][y];
   bool m = false;
-  
-  if (!IN_FIELD(t)) return m;
   
   if (IS_FLAG(t)) return m;
   if (IS_RVLD(t)) return m;
@@ -477,8 +477,12 @@ void game_over(GameContext *ctx) {
   ((Button *) ctx->widgets[WIDGET_BIG_BUTTON])->image = IMG_BIG_RETRY;
   }
 
+int get_n_mines() {
+  return STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/6;
+  }
+
 void start_game(GameContext *ctx, int hovered_tile_x, int hovered_tile_y) {
-  generate_field(ctx->field, STARTING_FIELD_WIDTH*STARTING_FIELD_HEIGHT/6, hovered_tile_x, hovered_tile_y);
+  generate_field(ctx->field, get_n_mines(), hovered_tile_x, hovered_tile_y);
   int digits = count_digits(ctx->field->width*ctx->field->height) + 1;
   ((NumberDisplay *) ctx->widgets[WIDGET_MINE_DISPLAY])->digits = (digits >= 3) ? digits : 3;
   ctx->game_state = GAME_PLAYING;
@@ -640,20 +644,22 @@ void frame(GameContext *ctx) {
   
   if (!ctx->run) return;
   
+  mine_display->value = field->placed_mines - field->placed_flags;
+  
   update_button(big_button, mouse_just_clicked);
   if (BUTTON_IS_CLICKED(big_button)) {
     ctx->game_state = GAME_WAITING;
     clear_field(ctx->field);
     big_button->image = IMG_BIG_FLAG;
+    mine_display->value = get_n_mines();
     }
   
-  mine_display->value = field->placed_mines - field->placed_flags;
   // if (mine_display->value < 0) mine_display->value = 0;
   
   if (field->tiles_unopened == field->placed_mines && ctx->game_state == GAME_PLAYING) {
     ctx->game_state = GAME_WON;
     big_button->image = IMG_BIG_WON;
-    min_display->value = 0;
+    mine_display->value = get_n_mines();
     show_all(field, true);
     }
   
