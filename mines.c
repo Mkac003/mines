@@ -387,6 +387,8 @@ bool dig(MineField *field, int x, int y) {
   Tile t = field->tiles[x][y];
   bool m = false;
   
+  if (!IN_FIELD(t)) return m;
+  
   if (IS_FLAG(t)) return m;
   if (IS_RVLD(t)) return m;
   m = m | IS_MINE(reveal(field, x, y));
