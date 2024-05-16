@@ -387,6 +387,8 @@ bool dig(MineField *field, int x, int y) {
   Tile t = field->tiles[x][y];
   bool m = false;
   
+  if (!IN_FIELD(t)) return m;
+  
   if (IS_FLAG(t)) return m;
   if (IS_RVLD(t)) return m;
   m = m | IS_MINE(reveal(field, x, y));
@@ -651,6 +653,7 @@ void frame(GameContext *ctx) {
   if (field->tiles_unopened == field->placed_mines && ctx->game_state == GAME_PLAYING) {
     ctx->game_state = GAME_WON;
     big_button->image = IMG_BIG_WON;
+    min_display->value = 0;
     show_all(field, true);
     }
   
