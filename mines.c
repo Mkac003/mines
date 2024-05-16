@@ -653,6 +653,7 @@ void frame(GameContext *ctx) {
   if (field->tiles_unopened == field->placed_mines && ctx->game_state == GAME_PLAYING) {
     ctx->game_state = GAME_WON;
     big_button->image = IMG_BIG_WON;
+    min_display->value = 0;
     show_all(field, true);
     }
   
